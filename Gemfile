@@ -207,7 +207,7 @@ group :development do
   # https://github.com/capistrano/chruby
   gem 'capistrano-chruby', require: false
   # https://github.com/seuros/capistrano-puma
-  gem 'capistrano3-puma', git: 'https://github.com/seuros/capistrano-puma.git'
+  gem 'capistrano3-puma', git: 'https://github.com/edgeryders/capistrano-puma.git'
   # https://github.com/seuros/capistrano-sidekiq
   gem 'capistrano-sidekiq', require: false
   # https://github.com/capistrano/bundler

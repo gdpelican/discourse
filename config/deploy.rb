@@ -10,7 +10,7 @@ set :deploy_via,      :remote_cache
 # See: https://github.com/seuros/capistrano-sidekiq
 set :pty,             false
 ## Linked Files & Directories (Default None):
-set :linked_files, fetch(:linked_files, []).push('config/discourse.conf', 'config/puma.rb')
+set :linked_files, fetch(:linked_files, []).push('config/discourse.conf', 'config/puma.rb', 'config/multisite.yml')
 set :linked_dirs, fetch(:linked_dirs, []).push('log', 'tmp/pids', 'tmp/cache', 'tmp/sockets', 'public/system', 'public/backups', 'public/uploads')
 
 
