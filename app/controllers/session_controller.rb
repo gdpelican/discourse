@@ -58,8 +58,13 @@ class SessionController < ApplicationController
         sso.username = current_user.username
         sso.email = current_user.email
         sso.external_id = current_user.id.to_s
-        sso.admin = current_user.admin?
-        sso.moderator = current_user.moderator?
+
+        # damingo (Github ID), 2018-12-12, #multisite, Do not automatically make users admins or moderators on multisite sites.
+        # sso.admin = current_user.admin?
+        # sso.moderator = current_user.moderator?
+        sso.admin = false
+        sso.moderator = false
+
         sso.groups = current_user.groups.pluck(:name).join(",")
 
         if current_user.uploaded_avatar.present?
