@@ -75,8 +75,9 @@ class DiscourseSingleSignOn < SingleSignOn
 
     user.ip_address = ip_address
 
-    user.admin = admin unless admin.nil?
-    user.moderator = moderator unless moderator.nil?
+    # damingo (Github ID), 2018-12-28, #multisite, Do not automatically make users admins or moderators on multisite sites.
+    #user.admin = admin unless admin.nil?
+    #user.moderator = moderator unless moderator.nil?
 
     user.title = title unless title.nil?
 
