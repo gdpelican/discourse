@@ -1,11 +1,11 @@
-# EdgerydersCommunities
+# EdgerydersMultisite
 
-EdgerydersCommunities is a plugin for ...
+EdgerydersMultisite is a plugin for ...
 
 ## Installation
 
 Follow [Install a Plugin](https://meta.discourse.org/t/install-a-plugin/19157)
-how-to from the official Discourse Meta, using `git clone https://github.com/damingo/edgeryders-communities.git`
+how-to from the official Discourse Meta, using `git clone https://github.com/damingo/edgeryders-multisite.git`
 as the plugin command.
 
 ## Usage

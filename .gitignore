@@ -53,6 +53,7 @@ bootsnap-compile-cache/
 !/plugins/discourse-narrative-bot
 !/plugins/discourse-presence
 !/plugins/discourse-local-dates
+!/plugins/discourse-migratepassword
 !/plugins/edgeryders-communities
 !/plugins/edgeryders-communities-navigation
 /plugins/*/auto_generated/
@@ -132,3 +133,5 @@ vendor/bundle/*
 !/plugins/discourse-forum-network-navigation
 
 !/plugins/edgeryders-communities-navigation
+
+!/plugins/edgeryders-multisite

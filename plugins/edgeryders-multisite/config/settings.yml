@@ -1,5 +1,5 @@
 plugins:
-  edgeryders_communities_enabled:
+  edgeryders_multisite_enabled:
     default: true
     client: true
 users:
