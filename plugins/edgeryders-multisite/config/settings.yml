@@ -14,7 +14,7 @@ login:
     default: true
     validator: "EnableSsoValidator"
   sso_url:
-    default: 'https://network.edgeryders.eu/session/sso_provider'
+    default: 'https://communities.edgeryders.eu/session/sso_provider'
     regex: '^https?:\/\/.+[^\/]$'
   sso_overrides_email:
     default: true
