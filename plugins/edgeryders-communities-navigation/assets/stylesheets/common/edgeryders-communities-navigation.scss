@@ -1,0 +1,145 @@
+body {
+  .d-header {
+    top: 31px;
+  }
+  &.docked {
+    .d-header {
+      top: 0;
+    }
+  }
+}
+
+nav#edgeryders-communities-navigation {
+  border-bottom: 1px solid #efefef;
+  .wrap {
+    position: relative;
+  }
+  ul {
+    margin: 0;
+    &.forum-selector {
+      float: right;
+      margin-right: 15px;
+    }
+  }
+  li {
+    list-style-type: none;
+    text-align: left;
+    outline: none !important;
+    a {
+      text-decoration: none;
+      outline: none !important;
+    }
+  }
+  /* "Behaviour" for the on-click submenus. */
+  .menuitem-clickable {
+    position: relative; /* Needed to position the contained .menu-level2 content in relation to this element, e.g. right-aligned. */
+    cursor: pointer; /* Make pure-CSS on-click menu work on iOS Safari, as per http://koen.kivits.com/articles/pure-css-menu/#comment-2612602845 */
+    &:focus {
+      pointer-events: none;
+    }
+    &.no-pointer-events {
+      pointer-events: auto !important;
+    }
+    & > a {
+      color: #222;
+      transition: color 150ms ease-out 0s;
+      text-decoration: none;
+      padding-top: 0.5em;
+      padding-bottom: 0.2em;
+      line-height: 1.2em;
+      font-size: 1.143em;
+      float: left;
+      outline: none !important;
+    }
+
+    &:focus .menu-level2 {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .menu-level2 {
+      border: 1px solid #e9e9e9;
+      box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
+      background-color: #fff;
+      padding: 0;
+      pointer-events: auto;
+      position: absolute; /* Means arguments position it relative to its closest positioned ancestor, i.e. .menuitem-clickable. */
+      right: 0; /* Align right edge of submenu and mainmenu item, to not go beyond the right page border. */
+      margin-top: 28px; /* Position below the main menu item. */
+      z-index: 1002; /* Push above Discourse's white header bar, which has 1000. */
+      opacity: 0;
+      visibility: hidden;
+      transition: visibility 0.5s;
+      min-width: 330px;
+      margin-left: 0;
+      // for testing:
+      //visibility: visible !important;
+      //opacity: 1 !important;
+      li {
+        border-bottom: 1px solid #eff0f1;
+        &:last-child {
+          border-bottom: none;
+        }
+      }
+      a.community-link {
+        color: #08c;
+        padding: 6px 7px 6px 27px;
+        background: no-repeat 5px 8px;
+        display: block;
+        &:hover {
+          background-color: #f7f8f8;
+        }
+        .site-desc {
+          color: #9fa6ad;
+          font-size: 12px;
+          padding: 0;
+          margin: 3px 0 0 0;
+          display: block;
+        }
+
+        // Convert images to base64: https://www.base64-image.de
+        // Required image size: 16px x 16px
+        &.edgeryders-community {
+          background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAABm1BMVEX/bST/YED/VTnqVSvrYjvtWzfzYTH0YDX1XDP2Xi/wWjXxWjDyXjb0WzPuXjLvXjTwXTPwXDLwWzLxXTTxXDTxXTPyWzPyXTPwXDTwXTPxXDPxWzPyXDLyXDTyXTPwXDPwXDPwXTLwXDTxWzTxXDPxXDPxXDLxXTPyXDPwXDPxXTPyXDPxXDPxXDPxXDPxXDPxXDPxXDPxXDPxXDPxXDPxXDPxXDMAru8Bre4dpNgfo9cnodFAmb1El7pFlrpIlbdaj6ltiZqSfH27bl28blzKaVHMaVDSZ0vfYkHoXznuXTXxXDPxXTXxXzbxYTnyZD3yZkDyZ0HyakXya0Xzbknzb0vzcEzzcE3zeVf0eVj0eln0gGD1h2n1i231jXD2kXX2lHn2lnv2m4H2nIP3nYX3noX3nob3o4z4qJL4rJf4r5v4s6D5t6X5uKb5u6n5vKv5vq36v6/6xbf6yLr6y7370cX71sz818382tH829L83tX84Nn95N395d/95uD95+H+8/D+9PH+9fP+9/X/+/n/+/r//Pz//v3///+fiA+NAAAAAXRSTlMAQObYZgAAAAFiS0dEAIgFHUgAAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQfjAQIRDg02u7rDAAAAj0lEQVQY02NgAAN5PVM1BgQw84YACSjfGw60UfgOdt7e6kjqvWzMnb29wQqqOzqiOzo6IsyBwoYM8kCBLG/vjrjsOrBCBn2YQHojRMAErMUbqCURIqAGVZHcATEbbChYS3sMQqChPqojrrAcxJdjYJDwjk9NDUoJDU6BKGBg0EI43RviFyU0PhAYgrmyICYACxlA7yp0vKoAAAAASUVORK5CYII=');
+        }
+        &.timisoara-community {
+          background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4wECEQ42h7BT5wAAAe1JREFUOMt91E9oz2EcB/DX892YMl9jW82fjGLibGxl3604KCXKZbmg5GA3pNzYylE5kMiVmxMOWulnbeTkQCFN7c9pke/mb9sehz3jl9innvr0fP4878/78+4JsZILRQliJc+wFSewH1ss2Cge4w4+hKKcjUM5c2RVxU0YwH18wXFRizktOI4feID+WMkbw96SmkxIxc24imnRhdBdlv5hsZLX4wo2oC8U5WRIsAewRtfqMyGMzVvCXtxcle3aES5hDc5l2IZDdtacD2GsGadw+K+6A2hFb/vp6XncwHp01Kb57oWmTzOYwT4M4jZeYhN68AgHcTcU5WSs5CPozBLb96te+4Y9qMe6tJVJFBirynuOtlpsEb2pCrzCe3SmZkP4mvymqrwJbM/AH9paEdIYH5M/lxB9THz9XgpihlE12tLlVOKhEUfwHQ1YmRB0VzXYiHdZUthRCMFa9OIhlqEFXZjFC2RVDTrxNktsH4vjDStjNINrCcVJPMPFtJU6nE2C2oB2DIdYyWvRj1zX8r4QpuJSQvo+mNfVLXMWm9G3KOVG3MJrXA9FOfkfKa9PuilwckHKT1YJPdOLwYtJYSNpz+NVhHVidyL6cijKiVjJhfh0NZFQfBYr+Qp0pOS2dOAd3mIYw6Eofy5+A78An7+g4BovGC4AAAAASUVORK5CYII=');
+        }
+      }
+    }
+
+  }
+}
+
+//@media (max-width: 739px) {
+//
+//  nav#communities-navigation .menu-projects {
+//    &.desktop {
+//      display: none;
+//    }
+//    &.mobile {
+//      .menuitem-clickable .menu-level2 {
+//        position: absolute;
+//        right: auto;
+//        left: 0;
+//        &:before {
+//          right: auto;
+//          left: 20px;
+//        }
+//      }
+//    }
+//  }
+//
+//}
+
+//@media (min-width: 740px) {
+//
+//  nav#communities-navigation .menu-projects {
+//    &.mobile {
+//      display: none;
+//    }
+//  }
+//
+//}
+
+

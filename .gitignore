@@ -53,6 +53,8 @@ bootsnap-compile-cache/
 !/plugins/discourse-narrative-bot
 !/plugins/discourse-presence
 !/plugins/discourse-local-dates
+!/plugins/edgeryders-communities
+!/plugins/edgeryders-communities-navigation
 /plugins/*/auto_generated/
 
 /spec/fixtures/plugins/my_plugin/auto_generated
@@ -122,3 +124,11 @@ vendor/bundle/*
 # ignore nodejs files
 /node_modules
 /package-lock.json
+
+!/plugins/discourse-content-network
+
+!/plugins/discourse-forum-network
+
+!/plugins/discourse-forum-network-navigation
+
+!/plugins/edgeryders-communities-navigation
