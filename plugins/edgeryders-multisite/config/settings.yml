@@ -1,3 +1,4 @@
+# NOTE: Adapted settings like "enable_sso" are also applied even when edgeryders_multisite_enabled is false.
 plugins:
   edgeryders_multisite_enabled:
     default: true
