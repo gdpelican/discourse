@@ -21,6 +21,7 @@ login:
     default: true
     validator: "SsoOverridesEmailValidator"
   sso_overrides_username: true
+  sso_overrides_name: true
   sso_overrides_avatar:
     default: true
     client: true
