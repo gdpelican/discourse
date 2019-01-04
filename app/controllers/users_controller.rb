@@ -60,7 +60,7 @@ class UsersController < ApplicationController
 
     topic_id = params[:include_post_count_for].to_i
     if topic_id != 0
-      user_serializer.topic_post_count = { topic_id => Post.secured(guardian).where(topic_id: topic_id, user_id: @user.id).count }
+      user_serializer.topic_post_count = {topic_id => Post.secured(guardian).where(topic_id: topic_id, user_id: @user.id).count}
     end
 
     if !params[:skip_track_visit] && (@user != current_user)
@@ -136,7 +136,7 @@ class UsersController < ApplicationController
     result = UsernameChanger.change(user, params[:new_username], current_user)
 
     if result
-      render json: { id: user.id, username: user.username }
+      render json: {id: user.id, username: user.username}
     else
       render_json_error(user.errors.full_messages.join(','))
     end
@@ -217,10 +217,10 @@ class UsersController < ApplicationController
     filter_by = params[:filter]
 
     invites = if guardian.can_see_invite_details?(inviter) && filter_by == "pending"
-      Invite.find_pending_invites_from(inviter, offset)
-    else
-      Invite.find_redeemed_invites_from(inviter, offset)
-    end
+                Invite.find_pending_invites_from(inviter, offset)
+              else
+                Invite.find_redeemed_invites_from(inviter, offset)
+              end
 
     invites = invites.filter_by(params[:search])
     render_json_dump invites: serialize_data(invites.to_a, InviteSerializer),
@@ -233,8 +233,8 @@ class UsersController < ApplicationController
     pending_count = Invite.find_pending_invites_count(inviter)
     redeemed_count = Invite.find_redeemed_invites_count(inviter)
 
-    render json: { counts: { pending: pending_count, redeemed: redeemed_count,
-                             total: (pending_count.to_i + redeemed_count.to_i) } }
+    render json: {counts: {pending: pending_count, redeemed: redeemed_count,
+                           total: (pending_count.to_i + redeemed_count.to_i)}}
   end
 
   def is_local_username
@@ -264,12 +264,12 @@ class UsersController < ApplicationController
     topic_id = params[:topic_id]
     unless topic_id.blank?
       topic = Topic.find_by(id: topic_id)
-      usernames.each { |username| cannot_see.push(username) unless Guardian.new(User.find_by_username(username)).can_see?(topic) }
+      usernames.each {|username| cannot_see.push(username) unless Guardian.new(User.find_by_username(username)).can_see?(topic)}
     end
 
     result = User.where(staged: false)
-      .where(username_lower: usernames)
-      .pluck(:username_lower)
+               .where(username_lower: usernames)
+               .pluck(:username_lower)
 
     render json: {
       valid: result,
@@ -281,7 +281,7 @@ class UsersController < ApplicationController
   end
 
   def render_available_true
-    render(json: { available: true })
+    render(json: {available: true})
   end
 
   def changing_case_of_own_username(target_user, username)
@@ -383,6 +383,25 @@ class UsersController < ApplicationController
       authentication.finish
       activation.finish
 
+
+      # damingo (Github ID), 2019-01-03, #new-user-notification
+      # Used to notify community managers about new sign-ups.
+      # Users can simply set the notification level of the posts thread accordingly ("Watching" to get immediate
+      # e-mail notifications, "Tracking" to only get in-site and desktop notifications).
+      # NOTE: It is not possible to put this in a plugin and use `User.class_eval do ... after_create do ...` as
+      #   it must be executed after child records were created.
+      if SiteSetting.edgeryders_signup_notification_enabled?
+        if topic = Topic.find_by(id: SiteSetting.edgeryders_signup_notification_topic_id)
+          manager = NewPostManager.new(
+            Discourse.system_user,
+            raw: "We're glad to welcome [#{user.username}](/u/#{user.username}) to our community.",
+            topic_id: topic.id
+          )
+          manager.perform
+        end
+      end
+
+
       # save user email in session, to show on account-created page
       session["user_created_message"] = activation.message
       session[SessionController::ACTIVATE_USER_KEY] = user.id
@@ -433,7 +452,7 @@ class UsersController < ApplicationController
   end
 
   def get_honeypot_value
-    render json: { value: honeypot_value, challenge: challenge_value }
+    render json: {value: honeypot_value, challenge: challenge_value}
   end
 
   def password_reset
@@ -645,9 +664,9 @@ class UsersController < ApplicationController
         email_token = user.email_tokens.create!(email: user.email)
 
         Jobs.enqueue(:critical_user_email,
-          type: :email_login,
-          user_id: user.id,
-          email_token: email_token.token
+                     type: :email_login,
+                     user_id: user.id,
+                     email_token: email_token.token
         )
       end
     end
@@ -661,7 +680,7 @@ class UsersController < ApplicationController
 
   def toggle_anon
     user = AnonymousShadowCreator.get_master(current_user) ||
-           AnonymousShadowCreator.get(current_user)
+      AnonymousShadowCreator.get(current_user)
 
     if user
       log_on_user(user)
@@ -684,7 +703,7 @@ class UsersController < ApplicationController
 
     @custom_body_class = "static-account-created"
     @message = session['user_created_message'] || I18n.t('activation.missing_session')
-    @account_created = { message: @message, show_controls: false }
+    @account_created = {message: @message, show_controls: false}
 
     if session_user_id = session[SessionController::ACTIVATE_USER_KEY]
       if user = User.where(id: session_user_id.to_i).first
@@ -698,8 +717,8 @@ class UsersController < ApplicationController
     expires_now
 
     respond_to do |format|
-      format.html { render "default/empty" }
-      format.json { render json: success_json }
+      format.html {render "default/empty"}
+      format.json {render json: success_json}
     end
   end
 
@@ -779,7 +798,7 @@ class UsersController < ApplicationController
     raise Discourse::NotFound unless @user
 
     if !current_user&.staff? &&
-        @user.id != session[SessionController::ACTIVATE_USER_KEY]
+      @user.id != session[SessionController::ACTIVATE_USER_KEY]
 
       raise Discourse::InvalidAccess.new
     end
@@ -815,12 +834,12 @@ class UsersController < ApplicationController
                              topic_allowed_users: topic_allowed_users,
                              searching_user: current_user,
                              group: @group
-                            ).search
+    ).search
 
     user_fields = [:username, :upload_avatar_template]
     user_fields << :name if SiteSetting.enable_names?
 
-    to_render = { users: results.as_json(only: user_fields, methods: [:avatar_template]) }
+    to_render = {users: results.as_json(only: user_fields, methods: [:avatar_template])}
 
     groups =
       if current_user
@@ -839,7 +858,7 @@ class UsersController < ApplicationController
       groups = groups.order('groups.name asc')
 
       to_render[:groups] = groups.map do |m|
-        { name: m.name, full_name: m.full_name }
+        {name: m.name, full_name: m.full_name}
       end
     end
 
@@ -979,8 +998,7 @@ class UsersController < ApplicationController
     @confirmation = AdminConfirmation.find_by_code(params[:token])
 
     raise Discourse::NotFound unless @confirmation
-    raise Discourse::InvalidAccess.new unless
-      @confirmation.performed_by.id == (current_user&.id || @confirmation.performed_by.id)
+    raise Discourse::InvalidAccess.new unless @confirmation.performed_by.id == (current_user&.id || @confirmation.performed_by.id)
 
     if request.post?
       @confirmation.email_confirmed!
@@ -1081,7 +1099,7 @@ class UsersController < ApplicationController
 
     # Using Discourse.authenticators rather than Discourse.enabled_authenticators so users can
     # revoke permissions even if the admin has temporarily disabled that type of login
-    authenticator = Discourse.authenticators.find { |a| a.name == provider_name }
+    authenticator = Discourse.authenticators.find {|a| a.name == provider_name}
     raise Discourse::NotFound if authenticator.nil? || !authenticator.can_revoke?
 
     skip_remote = params.permit(:skip_remote)
@@ -1147,7 +1165,7 @@ class UsersController < ApplicationController
   def honeypot_or_challenge_fails?(params)
     return false if is_api?
     params[:password_confirmation] != honeypot_value ||
-    params[:challenge] != challenge_value.try(:reverse)
+      params[:challenge] != challenge_value.try(:reverse)
   end
 
   def user_params
@@ -1169,23 +1187,23 @@ class UsersController < ApplicationController
       :card_background
     ]
 
-    permitted << { custom_fields: User.editable_user_custom_fields } unless User.editable_user_custom_fields.blank?
+    permitted << {custom_fields: User.editable_user_custom_fields} unless User.editable_user_custom_fields.blank?
     permitted.concat UserUpdater::OPTION_ATTR
-    permitted.concat UserUpdater::CATEGORY_IDS.keys.map { |k| { k => [] } }
+    permitted.concat UserUpdater::CATEGORY_IDS.keys.map {|k| {k => []}}
     permitted.concat UserUpdater::TAG_NAMES.keys
 
     result = params
-      .permit(permitted, theme_ids: [])
-      .reverse_merge(
-        ip_address: request.remote_ip,
-        registration_ip_address: request.remote_ip,
-        locale: user_locale
-      )
+               .permit(permitted, theme_ids: [])
+               .reverse_merge(
+                 ip_address: request.remote_ip,
+                 registration_ip_address: request.remote_ip,
+                 locale: user_locale
+               )
 
     if !UsernameCheckerService.is_developer?(result['email']) &&
-        is_api? &&
-        current_user.present? &&
-        current_user.admin?
+      is_api? &&
+      current_user.present? &&
+      current_user.admin?
 
       result.merge!(params.permit(:active, :staged, :approved))
     end
@@ -1203,7 +1221,7 @@ class UsersController < ApplicationController
   end
 
   def fail_with(key)
-    render json: { success: false, message: I18n.t(key) }
+    render json: {success: false, message: I18n.t(key)}
   end
 
   def track_visit_to_user_profile
