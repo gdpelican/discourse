@@ -13,9 +13,9 @@ enabled_site_setting :edgeryders_signup_notification_enabled
 PLUGIN_NAME ||= "EdgerydersSignupNotification".freeze
 
 after_initialize do
-  
+
   # see lib/plugin/instance.rb for the methods available in this context
-  
+
 
   module ::EdgerydersSignupNotification
     class Engine < ::Rails::Engine
@@ -24,9 +24,23 @@ after_initialize do
     end
   end
 
-  
 
-  
+  DiscourseEvent.on(:user_created) do |user|
+    # Users can simply set the notification level of the posts thread accordingly ("Watching" to get immediate
+    # e-mail notifications, "Tracking" to only get in-site and desktop notifications).
+    if SiteSetting.edgeryders_signup_notification_enabled?
+      if topic = Topic.find_by(id: SiteSetting.edgeryders_signup_notification_topic_id)
+        manager = NewPostManager.new(
+          Discourse.system_user,
+          raw: "We're glad to welcome [#{user.username}](/u/#{user.username}) to our community.",
+          topic_id: topic.id
+        )
+        manager.perform
+      end
+    end
+  end
+
+
   require_dependency "application_controller"
   class EdgerydersSignupNotification::ActionsController < ::ApplicationController
     requires_plugin PLUGIN_NAME
@@ -45,5 +59,5 @@ after_initialize do
   Discourse::Application.routes.append do
     mount ::EdgerydersSignupNotification::Engine, at: "/edgeryders-signup-notification"
   end
-  
+
 end
