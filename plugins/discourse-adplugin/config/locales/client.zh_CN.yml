@@ -1,0 +1,18 @@
+# encoding: utf-8
+#
+# Never edit this file. It will be overwritten when translations are pulled from Transifex.
+#
+# To work with us on translations, join this project:
+# https://www.transifex.com/projects/p/discourse-org/
+
+zh_CN:
+  js:
+    adplugin:
+      advertisement_label: '广告'
+  admin_js:
+    admin:
+      site_settings:
+        categories:
+          dfp_plugin: '谷歌 DFP/广告管理器'
+          amazon_plugin: '亚马逊网站联盟'
+          codefund_plugin: 'CodeFund'

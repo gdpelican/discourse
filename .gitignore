@@ -48,6 +48,7 @@ bootsnap-compile-cache/
 /plugins/*
 !/plugins/lazyYT/
 !/plugins/poll/
+!/plugins/discourse-adplugin
 !/plugins/discourse-details/
 !/plugins/discourse-nginx-performance-report
 !/plugins/discourse-narrative-bot
