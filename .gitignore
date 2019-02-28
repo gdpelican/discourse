@@ -55,8 +55,6 @@ bootsnap-compile-cache/
 !/plugins/discourse-presence
 !/plugins/discourse-local-dates
 !/plugins/discourse-migratepassword
-!/plugins/edgeryders-communities
-!/plugins/edgeryders-communities-navigation
 /plugins/*/auto_generated/
 
 /spec/fixtures/plugins/my_plugin/auto_generated
@@ -127,14 +125,7 @@ vendor/bundle/*
 /node_modules
 /package-lock.json
 
-!/plugins/discourse-content-network
-
-!/plugins/discourse-forum-network
-
-!/plugins/discourse-forum-network-navigation
 
 !/plugins/edgeryders-communities-navigation
-
 !/plugins/edgeryders-multisite
-
 !/plugins/edgeryders-signup-notification
