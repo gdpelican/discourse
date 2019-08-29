@@ -198,6 +198,17 @@ gem 'colored2', require: false
 
 
 
+gem 'annotator_store', git: 'https://github.com/edgeryders/annotator_store-gem', branch: 'master'
+# TODO In development reference the local version by means of an absolute path?!
+#gem 'annotator_store', path: 'vendor/gems/annotator_store'
+
+# NOTE: This is a quickfix to make sure the gem is loaded for annotator_store. It is specified in the annotator_store/Gemfile
+# as a dependency but this doesn't load the gem "uninitialized constant Administrate::Field::NestedHasMany"
+# The gems main file (administrate-field-nested_has_many/lib/administrate/field/nested_has_many.rb) is supposed to
+# be required in `annotator_store/lib/annotator_store.rb` but that doesn't work.
+gem "administrate-field-nested_has_many", git: 'https://github.com/edgeryders/administrate-field-nested_has_many.git', branch: 'master'
+
+
 # damingo (Github ID), 2018-11-27
 group :development do
   # https://github.com/capistrano/capistrano
