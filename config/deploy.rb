@@ -9,8 +9,8 @@ set :deploy_via,      :remote_cache
 # There is a known bug that prevents sidekiq from starting when pty is true on Capistrano 3.
 # See: https://github.com/seuros/capistrano-sidekiq
 set :pty,             false
-## Linked Files & Directories (Default None):
-set :linked_files, fetch(:linked_files, []).push('config/discourse.conf', 'config/puma.rb', 'config/multisite.yml')
+# Linked Files & Directories (Default None):
+set :linked_files, fetch(:linked_files, []).push('config/discourse.conf', 'config/puma.rb', 'config/multisite.yml', 'config/secrets.yml')
 set :linked_dirs, fetch(:linked_dirs, []).push('log', 'tmp/pids', 'tmp/cache', 'tmp/sockets', 'public/system', 'public/backups', 'public/uploads')
 
 

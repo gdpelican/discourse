@@ -209,6 +209,11 @@ gem 'annotator_store', git: 'https://github.com/edgeryders/annotator_store-gem',
 gem "administrate-field-nested_has_many", git: 'https://github.com/edgeryders/administrate-field-nested_has_many.git', branch: 'master'
 
 
+# Required by the edgeryders-stockaccounts plugin.
+# https://github.com/discourse/discourse_api
+gem 'discourse_api'
+
+
 # damingo (Github ID), 2018-11-27
 group :development do
   # https://github.com/capistrano/capistrano

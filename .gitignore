@@ -28,6 +28,7 @@ public/tombstone/*
 
 config/discourse.pill
 config/discourse.conf
+config/secrets.yml
 
 # Ignore the default SQLite database and db dumps
 *.sql
@@ -129,3 +130,4 @@ vendor/bundle/*
 !/plugins/edgeryders-communities-navigation
 !/plugins/edgeryders-multisite
 !/plugins/edgeryders-signup-notification
+!/plugins/edgeryders-multisite-accounts
