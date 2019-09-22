@@ -30,6 +30,8 @@ after_initialize do
   class EdgerydersMultisiteAccounts::ActionsController < ::ApplicationController
     requires_plugin PLUGIN_NAME
 
+    skip_before_action :redirect_to_login_if_required
+
     # See: https://edgeryders.eu/t/it-development-plan-for-the-h2020-projects/9202#heading--2-2-posting
     def create
       return render_json_error("Not allowed.") unless SiteSetting.enable_sso_provider
@@ -67,6 +69,8 @@ after_initialize do
       end
     end
 
+    
+    private
 
     def create_sso_provider_account
       hostname = Rails.application.secrets.sso_provider[:hostname]
