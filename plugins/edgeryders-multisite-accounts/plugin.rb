@@ -69,7 +69,7 @@ after_initialize do
       end
     end
 
-    
+
     private
 
     def create_sso_provider_account

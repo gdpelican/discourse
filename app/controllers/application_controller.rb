@@ -77,7 +77,8 @@ class ApplicationController < ActionController::Base
       request.user_agent &&
       (request.content_type.blank? || request.content_type.include?('html')) &&
       !['json', 'rss'].include?(params[:format]) &&
-      (has_escaped_fragment? || CrawlerDetection.crawler?(request.user_agent) || params.key?("print"))
+      # damingo (Github ID), 2019-09-23, #annotator
+      (has_escaped_fragment? || CrawlerDetection.crawler?(request.user_agent) || params.key?("print") || params.key?("oe"))
   end
 
   def add_readonly_header

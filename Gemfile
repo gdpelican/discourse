@@ -197,7 +197,7 @@ gem 'colored2', require: false
 
 
 
-
+# damingo (Github ID), 2019-09, #annotator
 gem 'annotator_store', git: 'https://github.com/edgeryders/annotator_store-gem', branch: 'master'
 # TODO In development reference the local version by means of an absolute path?!
 #gem 'annotator_store', path: 'vendor/gems/annotator_store'

@@ -131,3 +131,4 @@ vendor/bundle/*
 !/plugins/edgeryders-multisite
 !/plugins/edgeryders-signup-notification
 !/plugins/edgeryders-multisite-accounts
+!/plugins/edgeryders-shared

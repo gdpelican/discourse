@@ -847,6 +847,8 @@ class TopicsController < ApplicationController
       format.html do
         @description_meta = @topic_view.topic.excerpt || @topic_view.summary
         store_preloaded("topic_#{@topic_view.topic.id}", MultiJson.dump(topic_view_serializer))
+        # damingo (Github ID), 2019-09-23, #annotator
+        redirect_to annotator_topic_path(@topic_view.topic.id) and return if params[:oe].present?
         render :show
       end
 
