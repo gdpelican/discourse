@@ -132,3 +132,5 @@ vendor/bundle/*
 !/plugins/edgeryders-signup-notification
 !/plugins/edgeryders-multisite-accounts
 !/plugins/edgeryders-shared
+!/plugins/discourse-events
+
