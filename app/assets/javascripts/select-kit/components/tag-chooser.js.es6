@@ -1,10 +1,10 @@
 import MultiSelectComponent from "select-kit/components/multi-select";
-import Tags from "select-kit/mixins/tags";
+import TagsMixin from "select-kit/mixins/tags";
 import renderTag from "discourse/lib/render-tag";
 import computed from "ember-addons/ember-computed-decorators";
 const { get, run, makeArray } = Ember;
 
-export default MultiSelectComponent.extend(Tags, {
+export default MultiSelectComponent.extend(TagsMixin, {
   pluginApiIdentifiers: ["tag-chooser"],
   classNames: "tag-chooser",
   isAsync: true,
@@ -13,20 +13,22 @@ export default MultiSelectComponent.extend(Tags, {
   limit: null,
   blacklist: null,
   attributeBindings: ["categoryId"],
+  allowCreate: null,
   allowAny: Ember.computed.alias("allowCreate"),
 
   init() {
-    this._super();
+    this._super(...arguments);
 
-    if (this.get("allowCreate") !== false) {
+    if (this.allowCreate !== false) {
       this.set("allowCreate", this.site.get("can_create_tag"));
     }
 
-    if (!this.get("blacklist")) {
+    if (!this.blacklist) {
       this.set("blacklist", []);
     }
 
     this.set("termMatchesForbidden", false);
+    this.set("termMatchErrorMessage", null);
 
     this.set("templateForRow", rowComponent => {
       const tag = rowComponent.get("computedContent");
@@ -36,12 +38,12 @@ export default MultiSelectComponent.extend(Tags, {
       });
     });
 
-    if (!this.get("unlimitedTagCount")) {
+    if (!this.unlimitedTagCount) {
       this.set(
         "maximum",
         parseInt(
-          this.get("limit") ||
-            this.get("maximum") ||
+          this.limit ||
+            this.maximum ||
             this.get("siteSettings.max_tags_per_topic")
         )
       );
@@ -74,41 +76,42 @@ export default MultiSelectComponent.extend(Tags, {
     onExpand() {
       this.set(
         "searchDebounce",
-        run.debounce(this, this._prepareSearch, this.get("filter"), 200)
+        run.debounce(this, this._prepareSearch, this.filter, 200)
       );
     },
 
     onDeselect() {
       this.set(
         "searchDebounce",
-        run.debounce(this, this._prepareSearch, this.get("filter"), 200)
+        run.debounce(this, this._prepareSearch, this.filter, 200)
       );
     },
 
     onSelect() {
       this.set(
         "searchDebounce",
-        run.debounce(this, this._prepareSearch, this.get("filter"), 50)
+        run.debounce(this, this._prepareSearch, this.filter, 50)
       );
     }
   },
 
   _prepareSearch(query) {
-    const selectedTags = makeArray(this.get("values")).filter(t => t);
+    const selectedTags = makeArray(this.values).filter(t => t);
 
     const data = {
       q: query,
       limit: this.get("siteSettings.max_tag_search_results"),
-      categoryId: this.get("categoryId")
+      categoryId: this.categoryId
     };
 
-    if (selectedTags.length || this.get("blacklist").length) {
-      data.selected_tags = _.uniq(
-        selectedTags.concat(this.get("blacklist"))
-      ).slice(0, 100);
+    if (selectedTags.length || this.blacklist.length) {
+      data.selected_tags = _.uniq(selectedTags.concat(this.blacklist)).slice(
+        0,
+        100
+      );
     }
 
-    if (!this.get("everyTag")) data.filterForInput = true;
+    if (!this.everyTag) data.filterForInput = true;
 
     this.searchTags("/tags/filter/search", data, this._transformJson);
   },
@@ -117,6 +120,7 @@ export default MultiSelectComponent.extend(Tags, {
     let results = json.results;
 
     context.set("termMatchesForbidden", json.forbidden ? true : false);
+    context.set("termMatchErrorMessage", json.forbidden_message);
 
     if (context.get("blacklist")) {
       results = results.filter(result => {
@@ -131,12 +135,6 @@ export default MultiSelectComponent.extend(Tags, {
     results = results.map(result => {
       return { id: result.text, name: result.text, count: result.count };
     });
-
-    // if forbidden we probably have an existing tag which is not in the list of
-    // returned tags, so we manually add it at the top
-    if (json.forbidden) {
-      results.unshift({ id: json.forbidden, name: json.forbidden, count: 0 });
-    }
 
     return results;
   }

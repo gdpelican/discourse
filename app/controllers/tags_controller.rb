@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_dependency 'topic_list_responder'
 require_dependency 'topics_bulk_action'
 require_dependency 'topic_query'
@@ -25,6 +27,34 @@ class TagsController < ::ApplicationController
     @description_meta = I18n.t("tags.title")
     @title = @description_meta
 
+    show_all_tags = guardian.can_admin_tags? && guardian.is_admin?
+
+    if SiteSetting.tags_listed_by_group
+      ungrouped_tags = Tag.where("tags.id NOT IN (SELECT tag_id FROM tag_group_memberships)")
+      ungrouped_tags = ungrouped_tags.where("tags.topic_count > 0") unless show_all_tags
+
+      grouped_tag_counts = TagGroup.visible(guardian).order('name ASC').includes(:tags).map do |tag_group|
+        { id: tag_group.id, name: tag_group.name, tags: self.class.tag_counts_json(tag_group.tags) }
+      end
+
+      @tags = self.class.tag_counts_json(ungrouped_tags)
+      @extras = { tag_groups: grouped_tag_counts }
+    else
+      tags = show_all_tags ? Tag.all : Tag.where("tags.topic_count > 0")
+      unrestricted_tags = DiscourseTagging.filter_visible(tags, guardian)
+
+      categories = Category.where("id IN (SELECT category_id FROM category_tags)")
+        .where("id IN (?)", guardian.allowed_category_ids)
+        .includes(:tags)
+
+      category_tag_counts = categories.map do |c|
+        { id: c.id, tags: self.class.tag_counts_json(c.tags) }
+      end
+
+      @tags = self.class.tag_counts_json(unrestricted_tags)
+      @extras = { categories: category_tag_counts }
+    end
+
     respond_to do |format|
 
       format.html do
@@ -32,37 +62,10 @@ class TagsController < ::ApplicationController
       end
 
       format.json do
-        show_all_tags = guardian.can_admin_tags? && guardian.is_admin?
-
-        if SiteSetting.tags_listed_by_group
-          ungrouped_tags = Tag.where("tags.id NOT IN (SELECT tag_id FROM tag_group_memberships)")
-          ungrouped_tags = ungrouped_tags.where("tags.topic_count > 0") unless show_all_tags
-
-          grouped_tag_counts = TagGroup.visible(guardian).order('name ASC').includes(:tags).map do |tag_group|
-            { id: tag_group.id, name: tag_group.name, tags: self.class.tag_counts_json(tag_group.tags) }
-          end
-
-          render json: {
-            tags: self.class.tag_counts_json(ungrouped_tags),
-            extras: { tag_groups: grouped_tag_counts }
-          }
-        else
-          tags = show_all_tags ? Tag.all : Tag.where("tags.topic_count > 0")
-          unrestricted_tags = DiscourseTagging.filter_visible(tags, guardian)
-
-          categories = Category.where("id IN (SELECT category_id FROM category_tags)")
-            .where("id IN (?)", guardian.allowed_category_ids)
-            .includes(:tags)
-
-          category_tag_counts = categories.map do |c|
-            { id: c.id, tags: self.class.tag_counts_json(c.tags) }
-          end
-
-          render json: {
-            tags: self.class.tag_counts_json(unrestricted_tags),
-            extras: { categories: category_tag_counts }
-          }
-        end
+        render json: {
+          tags: @tags,
+          extras: @extras
+        }
       end
     end
   end
@@ -89,7 +92,7 @@ class TagsController < ::ApplicationController
       path_name = url_method(params.slice(:category, :parent_category))
       canonical_url "#{Discourse.base_url_no_prefix}#{public_send(path_name, *(params.slice(:parent_category, :category, :tag_id).values.map { |t| t.force_encoding("UTF-8") }))}"
 
-      if @list.topics.size == 0 && params[:tag_id] != 'none' && !Tag.where(name: @tag_id).exists?
+      if @list.topics.size == 0 && params[:tag_id] != 'none' && !Tag.where_name(@tag_id).exists?
         raise Discourse::NotFound.new("tag not found", check_permalinks: true)
       else
         respond_with_list(@list)
@@ -98,6 +101,8 @@ class TagsController < ::ApplicationController
   end
 
   def show
+    raise Discourse::NotFound if DiscourseTagging.hidden_tag_names(guardian).include?(params[:tag_id])
+
     show_latest
   end
 
@@ -115,6 +120,48 @@ class TagsController < ::ApplicationController
     else
       render_json_error tag.errors.full_messages
     end
+  end
+
+  def upload
+    guardian.ensure_can_admin_tags!
+
+    file = params[:file] || params[:files].first
+
+    hijack do
+      begin
+        Tag.transaction do
+          CSV.foreach(file.tempfile) do |row|
+            raise Discourse::InvalidParameters.new(I18n.t("tags.upload_row_too_long")) if row.length > 2
+
+            tag_name = DiscourseTagging.clean_tag(row[0])
+            tag_group_name = row[1] || nil
+
+            tag = Tag.find_by_name(tag_name) || Tag.create!(name: tag_name)
+
+            if tag_group_name
+              tag_group = TagGroup.find_by(name: tag_group_name) || TagGroup.create!(name: tag_group_name)
+              tag.tag_groups << tag_group unless tag.tag_groups.include?(tag_group)
+            end
+          end
+        end
+        render json: success_json
+      rescue Discourse::InvalidParameters => e
+        render json: failed_json.merge(errors: [e.message]), status: 422
+      end
+    end
+  end
+
+  def list_unused
+    guardian.ensure_can_admin_tags!
+    render json: { tags: Tag.unused.pluck(:name) }
+  end
+
+  def destroy_unused
+    guardian.ensure_can_admin_tags!
+    tags = Tag.unused
+    StaffActionLogger.new(current_user).log_custom('deleted_unused_tags', tags: tags.pluck(:name))
+    tags.destroy_all
+    render json: success_json
   end
 
   def destroy
@@ -147,13 +194,19 @@ class TagsController < ::ApplicationController
   end
 
   def search
+    clean_name = DiscourseTagging.clean_tag(params[:q])
     category = params[:categoryId] ? Category.find_by_id(params[:categoryId]) : nil
 
+    # Prioritize exact matches when ordering
+    order_query = Tag.sanitize_sql_for_order(
+      ["lower(name) = lower(?) DESC, topic_count DESC", clean_name]
+    )
+
     tags_with_counts = DiscourseTagging.filter_allowed_tags(
-      Tag.order('topic_count DESC').limit(params[:limit]),
+      Tag.order(order_query).limit(params[:limit]),
       guardian,
       for_input: params[:filterForInput],
-      term: params[:q],
+      term: clean_name,
       category: category,
       selected_tags: params[:selected_tags]
     )
@@ -162,16 +215,31 @@ class TagsController < ::ApplicationController
 
     json_response = { results: tags }
 
-    if Tag.where(name: params[:q]).exists? && !tags.find { |h| h[:id] == params[:q] }
+    if !tags.find { |h| h[:id].downcase == clean_name.downcase } && tag = Tag.where_name(clean_name).first
       # filter_allowed_tags determined that the tag entered is not allowed
       json_response[:forbidden] = params[:q]
+
+      category_names = tag.categories.where(id: guardian.allowed_category_ids).pluck(:name)
+      category_names += Category.joins(tag_groups: :tags).where(id: guardian.allowed_category_ids, "tags.id": tag.id).pluck(:name)
+
+      if category_names.present?
+        category_names.uniq!
+        json_response[:forbidden_message] = I18n.t(
+          "tags.forbidden.restricted_to",
+          count: category_names.count,
+          tag_name: tag.name,
+          category_names: category_names.join(", ")
+        )
+      else
+        json_response[:forbidden_message] = I18n.t("tags.forbidden.in_this_category", tag_name: tag.name)
+      end
     end
 
     render json: json_response
   end
 
   def notifications
-    tag = Tag.find_by_name(params[:tag_id])
+    tag = Tag.where_name(params[:tag_id]).first
     raise Discourse::NotFound unless tag
     level = tag.tag_users.where(user: current_user).first.try(:notification_level) || TagUser.notification_levels[:regular]
     render json: { tag_notification: { id: tag.name, notification_level: level.to_i } }
@@ -186,9 +254,7 @@ class TagsController < ::ApplicationController
   end
 
   def check_hashtag
-    tag_values = params[:tag_values].each(&:downcase!)
-
-    valid_tags = Tag.where(name: tag_values).map do |tag|
+    valid_tags = Tag.where_name(params[:tag_values]).map do |tag|
       { value: tag.name, url: tag.full_url }
     end.compact
 
@@ -305,7 +371,6 @@ class TagsController < ::ApplicationController
       q: params[:q]
     }
     options[:no_subcategories] = true if params[:no_subcategories] == 'true'
-    options[:slow_platform] = true if slow_platform?
 
     if params[:tag_id] == 'none'
       options[:no_tags] = true

@@ -1,10 +1,6 @@
-require 'rails_helper'
+# frozen_string_literal: true
 
-# In the ghetto ... getting the spec to run in autospec
-#  thing is we need to load up all auth really early pre-fork
-#  it means that the require is not going to get a new copy
-Auth.send(:remove_const, :OpenIdAuthenticator)
-load 'auth/open_id_authenticator.rb'
+require 'rails_helper'
 
 describe Auth::OpenIdAuthenticator do
 
@@ -42,7 +38,7 @@ describe Auth::OpenIdAuthenticator do
   end
 
   context 'revoke' do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let(:authenticator) { Auth::OpenIdAuthenticator.new("test", "id", "enable_yahoo_logins", trusted: true) }
 
     it 'raises exception if no entry for user' do

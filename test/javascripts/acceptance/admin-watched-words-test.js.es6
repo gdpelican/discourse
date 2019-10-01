@@ -32,6 +32,12 @@ QUnit.test("list words in groups", async assert => {
     "Always show the words when checkbox is checked."
   );
 
+  assert.equal(
+    $(find(".watched-words-list .watched-word")[2]).text(),
+    ' <img src="x">',
+    "it should escape watched words"
+  );
+
   await click(".nav-stacked .censor a");
 
   assert.ok(exists(".watched-words-list"));
@@ -47,9 +53,9 @@ QUnit.test("add words", async assert => {
   await click(".watched-word-form button");
 
   let found = [];
-  _.each(find(".watched-words-list .watched-word"), i => {
+  $.each(find(".watched-words-list .watched-word"), (index, elem) => {
     if (
-      $(i)
+      $(elem)
         .text()
         .trim() === "poutine"
     ) {
@@ -65,17 +71,17 @@ QUnit.test("remove words", async assert => {
 
   let word = null;
 
-  _.each(find(".watched-words-list .watched-word"), i => {
+  $.each(find(".watched-words-list .watched-word"), (index, elem) => {
     if (
-      $(i)
+      $(elem)
         .text()
         .trim() === "anise"
     ) {
-      word = i;
+      word = elem;
     }
   });
 
   await click("#" + $(word).attr("id"));
 
-  assert.equal(find(".watched-words-list .watched-word").length, 1);
+  assert.equal(find(".watched-words-list .watched-word").length, 2);
 });

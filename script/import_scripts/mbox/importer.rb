@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative '../base'
 require_relative 'support/database'
 require_relative 'support/indexer'
@@ -93,13 +95,17 @@ module ImportScripts::Mbox
         next if all_records_exist?(:posts, rows.map { |row| row['msg_id'] })
 
         create_posts(rows, total: total_count, offset: offset) do |row|
-          if row['email_date'].blank?
-            puts "Date is missing. Skipping #{row['msg_id']}"
-            nil
-          elsif row['in_reply_to'].blank?
-            map_first_post(row)
-          else
-            map_reply(row)
+          begin
+            if row['email_date'].blank?
+              puts "Date is missing. Skipping #{row['msg_id']}"
+              nil
+            elsif row['in_reply_to'].blank?
+              map_first_post(row)
+            else
+              map_reply(row)
+            end
+          rescue => e
+            puts "Failed to map post for #{row['msg_id']}", e, e.backtrace.join("\n")
           end
         end
       end
@@ -127,10 +133,11 @@ module ImportScripts::Mbox
 
       if row['attachment_count'].positive?
         receiver = Email::Receiver.new(row['raw_message'])
-        body = receiver.add_attachments(body, user_id)
+        user = User.find(user_id)
+        body = receiver.add_attachments(body, user)
       end
 
-      body << Email::Receiver.elided_html(elided) if elided.present?
+      body = "#{body}#{Email::Receiver.elided_html(elided)}" if elided.present?
       body
     end
 

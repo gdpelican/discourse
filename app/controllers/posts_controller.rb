@@ -1,5 +1,8 @@
+# frozen_string_literal: true
+
 require_dependency 'new_post_manager'
 require_dependency 'post_creator'
+require_dependency 'post_action_destroyer'
 require_dependency 'post_destroyer'
 require_dependency 'post_merger'
 require_dependency 'distributed_memoizer'
@@ -123,11 +126,24 @@ class PostsController < ApplicationController
 
     posts = posts.reject { |post| !guardian.can_see?(post) || post.topic.blank? }
 
-    @posts = posts
-    @title = "#{SiteSetting.title} - #{I18n.t("rss_description.user_posts", username: user.username)}"
-    @link = "#{Discourse.base_url}/u/#{user.username}/activity"
-    @description = I18n.t("rss_description.user_posts", username: user.username)
-    render 'posts/latest', formats: [:rss]
+    respond_to do |format|
+      format.rss do
+        @posts = posts
+        @title = "#{SiteSetting.title} - #{I18n.t("rss_description.user_posts", username: user.username)}"
+        @link = "#{Discourse.base_url}/u/#{user.username}/activity"
+        @description = I18n.t("rss_description.user_posts", username: user.username)
+        render 'posts/latest', formats: [:rss]
+      end
+
+      format.json do
+        render_json_dump(serialize_data(posts,
+                                        PostSerializer,
+                                        scope: guardian,
+                                        add_excerpt: true)
+                                      )
+      end
+    end
+
   end
 
   def cooked
@@ -186,8 +202,11 @@ class PostsController < ApplicationController
 
     post.image_sizes = params[:image_sizes] if params[:image_sizes].present?
 
-    if !guardian.send("can_edit?", post) && post.user_id == current_user.id && post.edit_time_limit_expired?
-      return render json: { errors: [I18n.t('too_late_to_edit')] }, status: 422
+    if !guardian.public_send("can_edit?", post) &&
+       post.user_id == current_user.id &&
+       post.edit_time_limit_expired?
+
+      return render_json_error(I18n.t('too_late_to_edit'))
     end
 
     guardian.ensure_can_edit!(post)
@@ -196,6 +215,11 @@ class PostsController < ApplicationController
       raw: params[:post][:raw],
       edit_reason: params[:post][:edit_reason]
     }
+
+    raw_old = params[:post][:raw_old]
+    if raw_old.present? && raw_old != post.raw
+      return render_json_error(I18n.t('edit_conflict'), status: 409)
+    end
 
     # to stay consistent with the create api, we allow for title & category changes here
     if post.is_first_post?
@@ -257,7 +281,18 @@ class PostsController < ApplicationController
 
   def reply_history
     post = find_post_from_params
-    render_serialized(post.reply_history(params[:max_replies].to_i, guardian), PostSerializer)
+
+    reply_history = post.reply_history(params[:max_replies].to_i, guardian)
+    user_custom_fields = {}
+    if (added_fields = User.whitelisted_user_custom_fields(guardian)).present?
+      user_custom_fields = User.custom_fields_for_ids(reply_history.pluck(:user_id), added_fields)
+    end
+
+    render_serialized(
+      reply_history,
+      PostSerializer,
+      user_custom_fields: user_custom_fields
+    )
   end
 
   def reply_ids
@@ -307,6 +342,7 @@ class PostsController < ApplicationController
 
   def destroy_many
     params.require(:post_ids)
+    agree_with_first_reply_flag = (params[:agree_with_first_reply_flag] || true).to_s == "true"
 
     posts = Post.where(id: post_ids_including_replies)
     raise Discourse::InvalidParameters.new(:post_ids) if posts.blank?
@@ -315,7 +351,9 @@ class PostsController < ApplicationController
     posts.each { |p| guardian.ensure_can_delete!(p) }
 
     Post.transaction do
-      posts.each { |p| PostDestroyer.new(current_user, p).destroy }
+      posts.each_with_index do |p, i|
+        PostDestroyer.new(current_user, p, defer_flags: !(agree_with_first_reply_flag && i == 0)).destroy
+      end
     end
 
     render body: nil
@@ -333,16 +371,28 @@ class PostsController < ApplicationController
   def replies
     post = find_post_from_params
     replies = post.replies.secured(guardian)
-    render_serialized(replies, PostSerializer)
+
+    user_custom_fields = {}
+    if (added_fields = User.whitelisted_user_custom_fields(guardian)).present?
+      user_custom_fields = User.custom_fields_for_ids(replies.pluck(:user_id), added_fields)
+    end
+
+    render_serialized(replies, PostSerializer, user_custom_fields: user_custom_fields)
   end
 
   def revisions
+    post = find_post_from_params
+    raise Discourse::NotFound if post.hidden && !guardian.can_view_hidden_post_revisions?
+
     post_revision = find_post_revision_from_params
     post_revision_serializer = PostRevisionSerializer.new(post_revision, scope: guardian, root: false)
     render_json_dump(post_revision_serializer)
   end
 
   def latest_revision
+    post = find_post_from_params
+    raise Discourse::NotFound if post.hidden && !guardian.can_view_hidden_post_revisions?
+
     post_revision = find_latest_post_revision_from_params
     post_revision_serializer = PostRevisionSerializer.new(post_revision, scope: guardian, root: false)
     render_json_dump(post_revision_serializer)
@@ -431,10 +481,27 @@ class PostsController < ApplicationController
     render_json_dump(locked: post.locked?)
   end
 
+  def notice
+    raise Discourse::NotFound unless guardian.is_staff?
+
+    post = find_post_from_params
+
+    if params[:notice].present?
+      post.custom_fields["notice_type"] = Post.notices[:custom]
+      post.custom_fields["notice_args"] = params[:notice]
+      post.save_custom_fields
+    else
+      post.delete_post_notices
+    end
+
+    render body: nil
+  end
+
   def bookmark
     if params[:bookmarked] == "true"
       post = find_post_from_params
-      PostAction.act(current_user, post, PostActionType.types[:bookmark])
+      result = PostActionCreator.create(current_user, post, :bookmark)
+      return render_json_error(result) if result.failed?
     else
       post_action = PostAction.find_by(post_id: params[:post_id], user_id: current_user.id)
       raise Discourse::NotFound unless post_action
@@ -442,7 +509,8 @@ class PostsController < ApplicationController
       post = Post.with_deleted.find_by(id: post_action&.post_id)
       raise Discourse::NotFound unless post
 
-      PostAction.remove_act(current_user, post, PostActionType.types[:bookmark])
+      result = PostActionDestroyer.destroy(current_user, post, :bookmark)
+      return render_json_error(result) if result.failed?
     end
 
     topic_user = TopicUser.get(post.topic, current_user)
@@ -471,7 +539,7 @@ class PostsController < ApplicationController
     guardian.ensure_can_rebake!
 
     post = find_post_from_params
-    post.rebake!(invalidate_oneboxes: true)
+    post.rebake!(invalidate_oneboxes: true, invalidate_broken_images: true)
 
     render body: nil
   end
@@ -664,7 +732,9 @@ class PostsController < ApplicationController
       result[:shared_draft] = true
     end
 
-    if current_user.staff? && SiteSetting.enable_whispers? && params[:whisper] == "true"
+    if params[:whisper] == "true"
+      raise Discourse::InvalidAccess.new("invalid_whisper_access", nil, custom_message: "invalid_whisper_access") unless guardian.can_create_whisper?
+
       result[:post_type] = Post.types[:whisper]
     end
 
@@ -694,7 +764,7 @@ class PostsController < ApplicationController
   end
 
   def signature_for(args)
-    "post##" << Digest::SHA1.hexdigest(args
+    +"post##" << Digest::SHA1.hexdigest(args
       .to_h
       .to_a
       .concat([["user", current_user.id]])

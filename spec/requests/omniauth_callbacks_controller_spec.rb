@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
+require 'single_sign_on'
 
 RSpec.describe Users::OmniauthCallbacksController do
-  let(:user) { Fabricate(:user) }
+  fab!(:user) { Fabricate(:user) }
 
   before do
     OmniAuth.config.test_mode = true
@@ -96,25 +99,27 @@ RSpec.describe Users::OmniauthCallbacksController do
           uid: '123545',
           info: OmniAuth::AuthHash::InfoHash.new(
             email: email,
-            name: 'Some name'
+            name: 'Some Name',
+            first_name: "Some",
+            last_name: "Name"
           ),
           extra: {
             raw_info: OmniAuth::AuthHash.new(
               email_verified: true,
               email: email,
               family_name: 'Huh',
-              given_name: "Some name",
+              given_name: "Some Name",
               gender: 'male',
               name: "Some name Huh",
             )
-          },
+          }
         )
 
         Rails.application.env_config["omniauth.auth"] = OmniAuth.config.mock_auth[:google_oauth2]
       end
 
       it 'should return the right response' do
-        destination_url = 'http://thisisasite.com/somepath'
+        destination_url = '/somepath'
         Rails.application.env_config["omniauth.origin"] = destination_url
 
         get "/auth/google_oauth2/callback.json"
@@ -124,8 +129,8 @@ RSpec.describe Users::OmniauthCallbacksController do
         response_body = JSON.parse(response.body)
 
         expect(response_body["email"]).to eq(email)
-        expect(response_body["username"]).to eq("Some_name")
-        expect(response_body["auth_provider"]).to eq("Google_oauth2")
+        expect(response_body["username"]).to eq("Some_Name")
+        expect(response_body["auth_provider"]).to eq("google_oauth2")
         expect(response_body["email_valid"]).to eq(true)
         expect(response_body["omit_username"]).to eq(false)
         expect(response_body["name"]).to eq("Some Name")
@@ -133,7 +138,7 @@ RSpec.describe Users::OmniauthCallbacksController do
       end
 
       it 'should include destination url in response' do
-        destination_url = 'http://thisisasite.com/somepath'
+        destination_url = '/cookiepath'
         cookies[:destination_url] = destination_url
 
         get "/auth/google_oauth2/callback.json"
@@ -208,7 +213,7 @@ RSpec.describe Users::OmniauthCallbacksController do
         expect(user.email_confirmed?).to eq(true)
       end
 
-      it "should activate/unstage staged user" do
+      it "should unstage staged user" do
         user.update!(staged: true, registration_ip_address: nil)
 
         user.reload
@@ -226,6 +231,22 @@ RSpec.describe Users::OmniauthCallbacksController do
         user.reload
         expect(user.staged).to eq(false)
         expect(user.registration_ip_address).to be_present
+      end
+
+      it "should activate user with matching email" do
+        user.update!(password: "securepassword", active: false, registration_ip_address: "1.1.1.1")
+
+        user.reload
+        expect(user.active).to eq(false)
+        expect(user.confirm_password?("securepassword")).to eq(true)
+
+        get "/auth/google_oauth2/callback.json"
+
+        user.reload
+        expect(user.active).to eq(true)
+
+        # Delete the password, it may have been set by someone else
+        expect(user.confirm_password?("securepassword")).to eq(false)
       end
 
       context 'when user has second factor enabled' do
@@ -251,9 +272,55 @@ RSpec.describe Users::OmniauthCallbacksController do
         end
       end
 
+      context 'when sso_payload cookie exist' do
+        before do
+          SiteSetting.enable_sso_provider = true
+          SiteSetting.sso_secret = "topsecret"
+
+          @sso = SingleSignOn.new
+          @sso.nonce = "mynonce"
+          @sso.sso_secret = SiteSetting.sso_secret
+          @sso.return_sso_url = "http://somewhere.over.rainbow/sso"
+          cookies[:sso_payload] = @sso.payload
+
+          UserAssociatedAccount.create!(provider_name: "google_oauth2", provider_uid: '12345', user: user)
+
+          OmniAuth.config.mock_auth[:google_oauth2] = OmniAuth::AuthHash.new(
+            provider: 'google_oauth2',
+            uid: '12345',
+            info: OmniAuth::AuthHash::InfoHash.new(
+              email: 'someother_email@test.com',
+              name: 'Some name'
+            ),
+            extra: {
+              raw_info: OmniAuth::AuthHash.new(
+                email_verified: true,
+                email: 'someother_email@test.com',
+                family_name: 'Huh',
+                given_name: user.name,
+                gender: 'male',
+                name: "#{user.name} Huh",
+              )
+            },
+          )
+
+          Rails.application.env_config["omniauth.auth"] = OmniAuth.config.mock_auth[:google_oauth2]
+        end
+
+        it 'should return the right response' do
+          get "/auth/google_oauth2/callback.json"
+
+          expect(response.status).to eq(200)
+
+          response_body = JSON.parse(response.body)
+
+          expect(response_body["destination_url"]).to match(/\/session\/sso_provider\?sso\=.*\&sig\=.*/)
+        end
+      end
+
       context 'when user has not verified his email' do
         before do
-          GoogleUserInfo.create!(google_user_id: '12345', user: user)
+          UserAssociatedAccount.create!(provider_name: "google_oauth2", provider_uid: '12345', user: user)
           user.update!(active: false)
 
           OmniAuth.config.mock_auth[:google_oauth2] = OmniAuth::AuthHash.new(
@@ -290,6 +357,155 @@ RSpec.describe Users::OmniauthCallbacksController do
           expect(response_body["awaiting_activation"]).to eq(true)
         end
       end
+
+      context 'with full screen login' do
+        before do
+          cookies['fsl'] = true
+        end
+
+        it "doesn't attempt redirect to external origin" do
+          get "/auth/google_oauth2?origin=https://example.com/external"
+          get "/auth/google_oauth2/callback"
+
+          expect(response.status).to eq 302
+          expect(response.location).to eq "http://test.localhost/"
+
+          cookie_data = JSON.parse(response.cookies['authentication_data'])
+          expect(cookie_data["destination_url"]).to eq('/')
+        end
+
+        it "redirects to internal origin" do
+          get "/auth/google_oauth2?origin=http://test.localhost/t/123"
+          get "/auth/google_oauth2/callback"
+
+          expect(response.status).to eq 302
+          expect(response.location).to eq "http://test.localhost/t/123"
+
+          cookie_data = JSON.parse(response.cookies['authentication_data'])
+          expect(cookie_data["destination_url"]).to eq('/t/123')
+        end
+
+        it "redirects to relative origin" do
+          get "/auth/google_oauth2?origin=/t/123"
+          get "/auth/google_oauth2/callback"
+
+          expect(response.status).to eq 302
+          expect(response.location).to eq "http://test.localhost/t/123"
+
+          cookie_data = JSON.parse(response.cookies['authentication_data'])
+          expect(cookie_data["destination_url"]).to eq('/t/123')
+        end
+
+        it "redirects with query" do
+          get "/auth/google_oauth2?origin=/t/123?foo=bar"
+          get "/auth/google_oauth2/callback"
+
+          expect(response.status).to eq 302
+          expect(response.location).to eq "http://test.localhost/t/123?foo=bar"
+
+          cookie_data = JSON.parse(response.cookies['authentication_data'])
+          expect(cookie_data["destination_url"]).to eq('/t/123?foo=bar')
+        end
+
+        it "removes authentication_data cookie on logout" do
+          get "/auth/google_oauth2?origin=https://example.com/external"
+          get "/auth/google_oauth2/callback"
+
+          provider = log_in_user(Fabricate(:user))
+
+          expect(cookies['authentication_data']).to be
+
+          log_out_user(provider)
+
+          expect(cookies['authentication_data']).to be_nil
+        end
+
+        after do
+          cookies.delete('fsl')
+        end
+      end
+    end
+
+    context 'when attempting reconnect' do
+      fab!(:user2) { Fabricate(:user) }
+      before do
+        UserAssociatedAccount.create!(provider_name: "google_oauth2", provider_uid: '12345', user: user)
+        UserAssociatedAccount.create!(provider_name: "google_oauth2", provider_uid: '123456', user: user2)
+
+        OmniAuth.config.mock_auth[:google_oauth2] = OmniAuth::AuthHash.new(
+          provider: 'google_oauth2',
+          uid: '12345',
+          info: OmniAuth::AuthHash::InfoHash.new(
+            email: 'someother_email@test.com',
+            name: 'Some name'
+          ),
+          extra: {
+            raw_info: OmniAuth::AuthHash.new(
+              email_verified: true,
+              email: 'someother_email@test.com',
+              family_name: 'Huh',
+              given_name: user.name,
+              gender: 'male',
+              name: "#{user.name} Huh",
+            )
+          },
+        )
+
+        Rails.application.env_config["omniauth.auth"] = OmniAuth.config.mock_auth[:google_oauth2]
+      end
+
+      it 'should not reconnect normally' do
+        # Log in normally
+        get "/auth/google_oauth2"
+        expect(response.status).to eq(302)
+        expect(session[:auth_reconnect]).to eq(false)
+
+        get "/auth/google_oauth2/callback.json"
+        expect(response.status).to eq(200)
+        expect(session[:current_user_id]).to eq(user.id)
+
+        # Log into another user
+        OmniAuth.config.mock_auth[:google_oauth2].uid = "123456"
+        get "/auth/google_oauth2"
+        expect(response.status).to eq(302)
+        expect(session[:auth_reconnect]).to eq(false)
+
+        get "/auth/google_oauth2/callback.json"
+        expect(response.status).to eq(200)
+        expect(session[:current_user_id]).to eq(user2.id)
+        expect(UserAssociatedAccount.count).to eq(2)
+      end
+
+      it 'should redirect to associate URL if parameter supplied' do
+        # Log in normally
+        get "/auth/google_oauth2?reconnect=true"
+        expect(response.status).to eq(302)
+        expect(session[:auth_reconnect]).to eq(true)
+
+        get "/auth/google_oauth2/callback.json"
+        expect(response.status).to eq(200)
+        expect(session[:current_user_id]).to eq(user.id)
+
+        # Clear cookie after login
+        expect(session[:auth_reconnect]).to eq(nil)
+
+        # Disconnect
+        UserAssociatedAccount.find_by(user_id: user.id).destroy
+
+        # Reconnect flow:
+        get "/auth/google_oauth2?reconnect=true"
+        expect(response.status).to eq(302)
+        expect(session[:auth_reconnect]).to eq(true)
+
+        OmniAuth.config.mock_auth[:google_oauth2].uid = "123456"
+        get "/auth/google_oauth2/callback.json"
+        expect(response.status).to eq(302)
+        expect(response.redirect_url).to start_with("http://test.localhost/associate/")
+
+        expect(session[:current_user_id]).to eq(user.id)
+        expect(UserAssociatedAccount.count).to eq(1) # Reconnect has not yet happened
+      end
+
     end
 
     context 'after changing email' do

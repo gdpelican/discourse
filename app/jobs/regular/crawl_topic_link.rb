@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'open-uri'
 require 'nokogiri'
 require 'excon'
@@ -6,6 +8,8 @@ require_dependency 'topic_link'
 
 module Jobs
   class CrawlTopicLink < Jobs::Base
+
+    sidekiq_options queue: 'low'
 
     def execute(args)
       raise Discourse::InvalidParameters.new(:topic_link_id) unless args[:topic_link_id].present?
@@ -26,7 +30,7 @@ module Jobs
 
         # Special case: Images
         # If the link is to an image, put the filename as the title
-        if FileHelper.is_image?(topic_link.url)
+        if FileHelper.is_supported_image?(topic_link.url)
           uri = URI(topic_link.url)
           filename = File.basename(uri.path)
           crawled = (TopicLink.where(id: topic_link.id).update_all(["title = ?, crawled_at = CURRENT_TIMESTAMP", filename]) == 1)

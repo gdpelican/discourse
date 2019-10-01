@@ -1,6 +1,13 @@
-export default function renderTag(tag, params) {
+let _renderer = defaultRenderTag;
+
+export function replaceTagRenderer(fn) {
+  _renderer = fn;
+}
+
+function defaultRenderTag(tag, params) {
   params = params || {};
-  tag = Handlebars.Utils.escapeExpression(tag);
+  const visibleName = Handlebars.Utils.escapeExpression(tag);
+  tag = visibleName.toLowerCase();
   const classes = ["discourse-tag"];
   const tagName = params.tagName || "a";
   let path;
@@ -29,7 +36,7 @@ export default function renderTag(tag, params) {
     " class='" +
     classes.join(" ") +
     "'>" +
-    tag +
+    visibleName +
     "</" +
     tagName +
     ">";
@@ -39,4 +46,8 @@ export default function renderTag(tag, params) {
   }
 
   return val;
+}
+
+export default function renderTag(tag, params) {
+  return _renderer(tag, params);
 }

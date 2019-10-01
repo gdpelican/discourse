@@ -1,4 +1,8 @@
+# frozen_string_literal: true
+
 class GroupsController < ApplicationController
+  include ApplicationHelper
+
   requires_login only: [
     :set_notifications,
     :mentionable,
@@ -42,7 +46,7 @@ class GroupsController < ApplicationController
       raise Discourse::InvalidAccess.new(:enable_group_directory)
     end
 
-    page_size = 30
+    page_size = mobile_device? ? 15 : 36
     page = params[:page]&.to_i || 0
     order = %w{name user_count}.delete(params[:order])
     dir = params[:asc] ? 'ASC' : 'DESC'
@@ -207,6 +211,10 @@ class GroupsController < ApplicationController
       raise Discourse::InvalidParameters.new(:limit)
     end
 
+    if limit > 1000
+      raise Discourse::InvalidParameters.new(:limit)
+    end
+
     if offset < 0
       raise Discourse::InvalidParameters.new(:offset)
     end
@@ -214,8 +222,43 @@ class GroupsController < ApplicationController
     dir = (params[:desc] && !params[:desc].blank?) ? 'DESC' : 'ASC'
     order = ""
 
+    if params[:requesters]
+      guardian.ensure_can_edit!(group)
+
+      users = group.requesters
+      total = users.count
+
+      if (filter = params[:filter]).present?
+        filter = filter.split(',') if filter.include?(',')
+
+        if current_user&.admin
+          users = users.filter_by_username_or_email(filter)
+        else
+          users = users.filter_by_username(filter)
+        end
+      end
+
+      users = users
+        .select("users.*, group_requests.reason, group_requests.created_at requested_at")
+        .order(params[:order] == 'requested_at' ? "group_requests.created_at #{dir}" : "")
+        .order(username_lower: dir)
+        .limit(limit)
+        .offset(offset)
+
+      return render json: {
+        members: serialize_data(users, GroupRequesterSerializer),
+        meta: {
+          total: total,
+          limit: limit,
+          offset: offset
+        }
+      }
+    end
+
     if params[:order] && %w{last_posted_at last_seen_at}.include?(params[:order])
       order = "#{params[:order]} #{dir} NULLS LAST"
+    elsif params[:order] == 'added_at'
+      order = "group_users.created_at #{dir}"
     end
 
     users = group.users.human_users
@@ -231,17 +274,21 @@ class GroupsController < ApplicationController
       end
     end
 
+    users = users.select('users.*, group_users.created_at as added_at')
+
     members = users
       .order('NOT group_users.owner')
       .order(order)
       .order(username_lower: dir)
       .limit(limit)
       .offset(offset)
+      .includes(:primary_group)
 
     owners = users
       .order(order)
       .order(username_lower: dir)
       .where('group_users.owner')
+      .includes(:primary_group)
 
     render json: {
       members: serialize_data(members, GroupUserSerializer),
@@ -258,20 +305,7 @@ class GroupsController < ApplicationController
     group = Group.find(params[:id])
     group.public_admission ? ensure_logged_in : guardian.ensure_can_edit!(group)
 
-    if params[:usernames].present?
-      users = User.where(username: params[:usernames].split(","))
-      raise Discourse::InvalidParameters.new(:usernames) if users.blank?
-    elsif params[:user_ids].present?
-      users = User.where(id: params[:user_ids].split(","))
-      raise Discourse::InvalidParameters.new(:user_ids) if users.blank?
-    elsif params[:user_emails].present?
-      users = User.with_email(params[:user_emails].split(","))
-      raise Discourse::InvalidParameters.new(:user_emails) if users.blank?
-    else
-      raise Discourse::InvalidParameters.new(
-        'user_ids or usernames or user_emails must be present'
-      )
-    end
+    users = users_from_params
 
     if group.public_admission
       if !guardian.can_log_group_changes?(group) && current_user != users.first
@@ -291,14 +325,40 @@ class GroupsController < ApplicationController
       ))
     else
       users.each do |user|
-        group.add(user)
-        GroupActionLogger.new(current_user, group).log_add_user_to_group(user)
+        begin
+          group.add(user)
+          GroupActionLogger.new(current_user, group).log_add_user_to_group(user)
+        rescue ActiveRecord::RecordNotUnique
+          # Under concurrency, we might attempt to insert two records quickly and hit a DB
+          # constraint. In this case we can safely ignore the error and act as if the user
+          # was added to the group.
+        end
       end
 
       render json: success_json.merge!(
         usernames: users.map(&:username)
       )
     end
+  end
+
+  def handle_membership_request
+    group = Group.find_by(id: params[:id])
+    raise Discourse::InvalidParameters.new(:id) if group.blank?
+    guardian.ensure_can_edit!(group)
+
+    ActiveRecord::Base.transaction do
+      user = User.find_by(id: params[:user_id])
+      raise Discourse::InvalidParameters.new(:user_id) if user.blank?
+
+      if params[:accept]
+        group.add(user)
+        GroupActionLogger.new(current_user, group).log_add_user_to_group(user)
+      end
+
+      GroupRequest.where(group_id: group.id, user_id: user.id).delete_all
+    end
+
+    render json: success_json
   end
 
   def mentionable
@@ -332,21 +392,14 @@ class GroupsController < ApplicationController
     raise Discourse::NotFound unless group
     group.public_exit ? ensure_logged_in : guardian.ensure_can_edit!(group)
 
-    user =
-      if params[:user_id].present?
-        User.find_by(id: params[:user_id])
-      elsif params[:username].present?
-        User.find_by_username(params[:username])
-      elsif params[:user_email].present?
-        User.find_by_email(params[:user_email])
-      else
-        raise Discourse::InvalidParameters.new('user_id or username must be present')
-      end
+    # Maintain backwards compatibility
+    params[:usernames] = params[:username] if params[:username].present?
+    params[:user_emails] = params[:user_email] if params[:user_email].present?
 
-    raise Discourse::NotFound unless user
+    users = users_from_params
 
     if group.public_exit
-      if !guardian.can_log_group_changes?(group) && current_user != user
+      if !guardian.can_log_group_changes?(group) && current_user != users.first
         raise Discourse::InvalidAccess
       end
 
@@ -355,27 +408,27 @@ class GroupsController < ApplicationController
       end
     end
 
-    user.primary_group_id = nil if user.primary_group_id == group.id
-
-    group.remove(user)
-    GroupActionLogger.new(current_user, group).log_remove_user_from_group(user)
-
-    if group.save && user.save
-      render json: success_json
-    else
-      render_json_error(group)
+    users.each do |user|
+      group.remove(user)
+      GroupActionLogger.new(current_user, group).log_remove_user_from_group(user)
     end
+
+    render json: success_json.merge!(
+      usernames: users.map(&:username)
+    )
+
   end
 
   def request_membership
     params.require(:reason)
 
-    unless current_user.staff?
-      RateLimiter.new(current_user, "request_group_membership", 1, 1.day).performed!
-    end
-
     group = find_group(:id)
-    group_name = group.name
+
+    begin
+      GroupRequest.create!(group: group, user: current_user, reason: params[:reason])
+    rescue ActiveRecord::RecordNotUnique => e
+      return render json: failed_json.merge(error: I18n.t("groups.errors.already_requested_membership")), status: 409
+    end
 
     usernames = [current_user.username].concat(
       group.users.where('group_users.owner')
@@ -384,9 +437,18 @@ class GroupsController < ApplicationController
         .pluck("users.username")
     )
 
+    raw = <<~EOF
+      #{params[:reason]}
+
+      ---
+      <a href="#{Discourse.base_uri}/g/#{group.name}/requests">
+        #{I18n.t('groups.request_membership_pm.handle')}
+      </a>
+    EOF
+
     post = PostCreator.new(current_user,
-      title: I18n.t('groups.request_membership_pm.title', group_name: group_name),
-      raw: params[:reason],
+      title: I18n.t('groups.request_membership_pm.title', group_name: group.name),
+      raw: raw,
       archetype: Archetype.private_message,
       target_usernames: usernames.join(','),
       skip_validations: true
@@ -458,6 +520,7 @@ class GroupsController < ApplicationController
           mentionable_level
           messageable_level
           default_notification_level
+          bio_raw
         }
       else
         default_params = %i{
@@ -486,6 +549,9 @@ class GroupsController < ApplicationController
             :automatic_membership_email_domains,
             :automatic_membership_retroactive
           ])
+
+          custom_fields = Group.editable_group_custom_fields
+          default_params << { custom_fields: custom_fields } unless custom_fields.blank?
         end
 
         default_params
@@ -500,5 +566,26 @@ class GroupsController < ApplicationController
     group = group.find_by("lower(name) = ?", name.downcase)
     guardian.ensure_can_see!(group) if ensure_can_see
     group
+  end
+
+  def users_from_params
+    if params[:usernames].present?
+      users = User.where(username_lower: params[:usernames].split(",").map(&:downcase))
+      raise Discourse::InvalidParameters.new(:usernames) if users.blank?
+    elsif params[:user_id].present?
+      users = User.where(id: params[:user_id].to_i)
+      raise Discourse::InvalidParameters.new(:user_id) if users.blank?
+    elsif params[:user_ids].present?
+      users = User.where(id: params[:user_ids].to_s.split(","))
+      raise Discourse::InvalidParameters.new(:user_ids) if users.blank?
+    elsif params[:user_emails].present?
+      users = User.with_email(params[:user_emails].split(","))
+      raise Discourse::InvalidParameters.new(:user_emails) if users.blank?
+    else
+      raise Discourse::InvalidParameters.new(
+        'user_ids or usernames or user_emails must be present'
+      )
+    end
+    users
   end
 end

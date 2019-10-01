@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe ::Presence::PresencesController do
@@ -35,6 +37,12 @@ describe ::Presence::PresencesController do
 
     it "doesn't produce an error" do
       expect { post '/presence/publish.json' }.not_to raise_error
+    end
+
+    it "does not publish for users with disabled presence features" do
+      user1.user_option.update_column(:hide_profile_and_presence, true)
+      post '/presence/publish.json'
+      expect(response.code).to eq("404")
     end
 
     it "uses guardian to secure endpoint" do

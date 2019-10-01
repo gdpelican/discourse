@@ -4,7 +4,7 @@ module SiteSettings; end
 
 # A cache for providing default value based on site locale
 class SiteSettings::DefaultsProvider
-  DEFAULT_LOCALE = 'en'
+  DEFAULT_LOCALE = 'en_US'
 
   def initialize(site_setting)
     @site_setting = site_setting
@@ -38,8 +38,10 @@ class SiteSettings::DefaultsProvider
   end
 
   def get(name, locale = DEFAULT_LOCALE)
-    @defaults.dig(locale.to_sym, name.to_sym) ||
-      @defaults.dig(DEFAULT_LOCALE.to_sym, name.to_sym)
+    value = @defaults.dig(locale.to_sym, name.to_sym)
+    return value unless value.nil?
+
+    @defaults.dig(DEFAULT_LOCALE.to_sym, name.to_sym)
   end
   alias [] get
 

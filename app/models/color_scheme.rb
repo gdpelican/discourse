@@ -4,6 +4,8 @@ require_dependency 'distributed_cache'
 
 class ColorScheme < ActiveRecord::Base
 
+  # rubocop:disable Layout/AlignHash
+
   CUSTOM_SCHEMES = {
     'Dark': {
       "primary" =>           'dddddd',
@@ -97,19 +99,25 @@ class ColorScheme < ActiveRecord::Base
     }
   }
 
+  # rubocop:enable Layout/AlignHash
+
+  LIGHT_THEME_ID = 'Light'
+
   def self.base_color_scheme_colors
     base_with_hash = {}
+
     base_colors.each do |name, color|
       base_with_hash[name] = "#{color}"
     end
 
     list = [
-      { id: 'Light', colors: base_with_hash }
+      { id: LIGHT_THEME_ID, colors: base_with_hash }
     ]
 
     CUSTOM_SCHEMES.each do |k, v|
       list.push(id: k.to_s, colors: v)
     end
+
     list
   end
 
@@ -136,13 +144,15 @@ class ColorScheme < ActiveRecord::Base
   @mutex = Mutex.new
 
   def self.base_colors
+    return @base_colors if @base_colors
     @mutex.synchronize do
       return @base_colors if @base_colors
-      @base_colors = {}
+      base_colors = {}
       File.readlines(BASE_COLORS_FILE).each do |line|
         matches = /\$([\w]+):\s*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})(?:[;]|\s)/.match(line.strip)
-        @base_colors[matches[1]] = matches[2] if matches
+        base_colors[matches[1]] = matches[2] if matches
       end
+      @base_colors = base_colors
     end
     @base_colors
   end
@@ -186,14 +196,16 @@ class ColorScheme < ActiveRecord::Base
     new_color_scheme
   end
 
-  def self.lookup_hex_for_name(name)
-    enabled_color_scheme = Theme.where(id: SiteSetting.default_theme_id).first&.color_scheme
+  def self.lookup_hex_for_name(name, scheme_id = nil)
+    enabled_color_scheme = find_by(id: scheme_id) if scheme_id
+    enabled_color_scheme ||= Theme.where(id: SiteSetting.default_theme_id).first&.color_scheme
     (enabled_color_scheme || base).colors.find { |c| c.name == name }.try(:hex) || "nil"
   end
 
-  def self.hex_for_name(name)
-    hex_cache[name] ||= lookup_hex_for_name(name)
-    hex_cache[name] == "nil" ? nil : hex_cache[name]
+  def self.hex_for_name(name, scheme_id = nil)
+    cache_key = scheme_id ? name + "_#{scheme_id}" : name
+    hex_cache[cache_key] ||= lookup_hex_for_name(name, scheme_id)
+    hex_cache[cache_key] == "nil" ? nil : hex_cache[cache_key]
   end
 
   def colors=(arr)
@@ -206,6 +218,7 @@ class ColorScheme < ActiveRecord::Base
   def colors_by_name
     @colors_by_name ||= self.colors.inject({}) { |sum, c| sum[c.name] = c; sum; }
   end
+
   def clear_colors_cache
     @colors_by_name = nil
   end

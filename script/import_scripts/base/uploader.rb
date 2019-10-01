@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_dependency 'url_helper'
 require_dependency 'file_helper'
 
@@ -40,7 +42,7 @@ module ImportScripts
     end
 
     def html_for_upload(upload, display_filename)
-      if FileHelper.is_image?(upload.url)
+      if FileHelper.is_supported_image?(upload.url)
         embedded_image_html(upload)
       else
         attachment_html(upload, display_filename)
@@ -55,7 +57,7 @@ module ImportScripts
     end
 
     def attachment_html(upload, display_filename)
-      "<a class='attachment' href='#{upload.url}'>#{display_filename}</a> (#{number_to_human_size(upload.filesize)})"
+      "[#{display_filename}|attachment](#{upload.short}) (#{number_to_human_size(upload.filesize)})"
     end
 
     private

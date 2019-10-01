@@ -1,9 +1,13 @@
+# frozen_string_literal: true
+
 module Discourse
+  VERSION_REGEXP = /\A\d+\.\d+\.\d+(\.beta\d+)?\z/ unless defined? ::Discourse::VERSION_REGEXP
+
   # work around reloader
   unless defined? ::Discourse::VERSION
     module VERSION #:nodoc:
       MAJOR = 2
-      MINOR = 1
+      MINOR = 3
       TINY  = 3
       PRE   = nil
 

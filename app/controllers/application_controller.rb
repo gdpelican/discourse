@@ -14,6 +14,7 @@ require_dependency 'global_path'
 require_dependency 'secure_session'
 require_dependency 'topic_query'
 require_dependency 'hijack'
+require_dependency 'read_only_header'
 
 class ApplicationController < ActionController::Base
   include CurrentUser
@@ -21,6 +22,7 @@ class ApplicationController < ActionController::Base
   include JsonError
   include GlobalPath
   include Hijack
+  include ReadOnlyHeader
 
   attr_reader :theme_ids
 
@@ -79,10 +81,12 @@ class ApplicationController < ActionController::Base
       !['json', 'rss'].include?(params[:format]) &&
       # damingo (Github ID), 2019-09-23, #annotator
       (has_escaped_fragment? || CrawlerDetection.crawler?(request.user_agent) || params.key?("print") || params.key?("oe"))
-  end
 
-  def add_readonly_header
-    response.headers['Discourse-Readonly'] = 'true' if @readonly_mode
+
+    # (has_escaped_fragment? || params.key?("print") ||
+    #   CrawlerDetection.crawler?(request.user_agent, request.headers["HTTP_VIA"])
+    # )
+
   end
 
   def perform_refresh_session
@@ -100,10 +104,6 @@ class ApplicationController < ActionController::Base
       response.cache_control[:no_cache] = true
       response.cache_control[:extras] = ["no-store"]
     end
-  end
-
-  def slow_platform?
-    request.user_agent =~ /Android/
   end
 
   def set_layout
@@ -220,6 +220,10 @@ class ApplicationController < ActionController::Base
     render_json_error I18n.t('read_only_mode_enabled'), type: :read_only, status: 503
   end
 
+  rescue_from ActionController::ParameterMissing do |e|
+    render_json_error e.message, status: 400
+  end
+
   def redirect_with_client_support(url, options)
     if request.xhr?
       response.headers['Discourse-Xhr-Redirect'] = 'true'
@@ -253,7 +257,11 @@ class ApplicationController < ActionController::Base
     if show_json_errors
       # HACK: do not use render_json_error for topics#show
       if request.params[:controller] == 'topics' && request.params[:action] == 'show'
-        return render status: status_code, layout: false, plain: (status_code == 404 || status_code == 410) ? build_not_found_page(status_code) : message
+        return render(
+          status: status_code,
+          layout: false,
+          plain: (status_code == 404 || status_code == 410) ? build_not_found_page(status_code) : message
+        )
       end
 
       render_json_error message, type: type, status: status_code
@@ -323,7 +331,7 @@ class ApplicationController < ActionController::Base
       locale = current_user.effective_locale
     end
 
-    I18n.locale = I18n.locale_available?(locale) ? locale : :en
+    I18n.locale = I18n.locale_available?(locale) ? locale : SiteSettings::DefaultsProvider::DEFAULT_LOCALE
     I18n.ensure_all_loaded!
   end
 
@@ -409,7 +417,7 @@ class ApplicationController < ActionController::Base
   end
 
   def guardian
-    @guardian ||= Guardian.new(current_user)
+    @guardian ||= Guardian.new(current_user, request)
   end
 
   def current_homepage
@@ -451,7 +459,7 @@ class ApplicationController < ActionController::Base
   end
 
   def can_cache_content?
-    current_user.blank? && flash[:authentication_data].blank?
+    current_user.blank? && cookies[:authentication_data].blank?
   end
 
   # Our custom cache method
@@ -496,11 +504,14 @@ class ApplicationController < ActionController::Base
     SecureSession.new(session["secure_session_id"] ||= SecureRandom.hex)
   end
 
-  private
-
-  def check_readonly_mode
-    @readonly_mode = Discourse.readonly_mode?
+  def handle_permalink(path)
+    permalink = Permalink.find_by_url(path)
+    if permalink && permalink.target_url
+      redirect_to permalink.target_url, status: :moved_permanently
+    end
   end
+
+  private
 
   def locale_from_header
     begin
@@ -590,7 +601,16 @@ class ApplicationController < ActionController::Base
     opts = { status: opts } if opts.is_a?(Integer)
     opts.fetch(:headers, {}).each { |name, value| headers[name.to_s] = value }
 
-    render json: MultiJson.dump(create_errors_json(obj, opts)), status: opts[:status] || 422
+    render(
+      json: MultiJson.dump(create_errors_json(obj, opts)),
+      status: opts[:status] || status_code(obj)
+    )
+  end
+
+  def status_code(obj)
+    return 403 if obj.try(:forbidden)
+    return 404 if obj.try(:not_found)
+    422
   end
 
   def success_json
@@ -615,10 +635,10 @@ class ApplicationController < ActionController::Base
       error_obj = nil
       if opts[:additional_errors]
         error_target = opts[:additional_errors].find do |o|
-          target = obj.send(o)
+          target = obj.public_send(o)
           target && target.errors.present?
         end
-        error_obj = obj.send(error_target) if error_target
+        error_obj = obj.public_send(error_target) if error_target
       end
       render_json_error(error_obj || obj)
     end
@@ -682,21 +702,63 @@ class ApplicationController < ActionController::Base
   end
 
   def redirect_to_login_if_required
-    return if current_user || (request.format.json? && is_api?)
+    return if request.format.json? && is_api?
 
-    if SiteSetting.login_required?
+    # Used by clients authenticated via user API.
+    # Redirects to provided URL scheme if
+    # - request uses a valid public key and auth_redirect scheme
+    # - one_time_password scope is allowed
+    if !current_user &&
+      params.has_key?(:user_api_public_key) &&
+      params.has_key?(:auth_redirect)
+      begin
+        OpenSSL::PKey::RSA.new(params[:user_api_public_key])
+      rescue OpenSSL::PKey::RSAError
+        return render plain: I18n.t("user_api_key.invalid_public_key")
+      end
+
+      if UserApiKey.invalid_auth_redirect?(params[:auth_redirect])
+        return render plain: I18n.t("user_api_key.invalid_auth_redirect")
+      end
+
+      if UserApiKey.allowed_scopes.superset?(Set.new(["one_time_password"]))
+        redirect_to("#{params[:auth_redirect]}?otp=true")
+        return
+      end
+    end
+
+    if !current_user && SiteSetting.login_required?
       flash.keep
+      dont_cache_page
 
       if SiteSetting.enable_sso?
         # save original URL in a session so we can redirect after login
         session[:destination_url] = destination_url
         redirect_to path('/session/sso')
+        return
       elsif params[:authComplete].present?
         redirect_to path("/login?authComplete=true")
+        return
       else
         # save original URL in a cookie (javascript redirects after login in this case)
         cookies[:destination_url] = destination_url
         redirect_to path("/login")
+        return
+      end
+    end
+
+    check_totp = current_user &&
+      !request.format.json? &&
+      !is_api? &&
+      ((SiteSetting.enforce_second_factor == 'staff' && current_user.staff?) ||
+        SiteSetting.enforce_second_factor == 'all') &&
+      !current_user.totp_enabled?
+
+    if check_totp
+      redirect_path = "#{GlobalSetting.relative_url_root}/u/#{current_user.username}/preferences/second-factor"
+      if !request.fullpath.start_with?(redirect_path)
+        redirect_to path(redirect_path)
+        return
       end
     end
   end
@@ -712,13 +774,21 @@ class ApplicationController < ActionController::Base
       layout = 'application' if layout == 'no_ember'
     end
 
-    category_topic_ids = Category.pluck(:topic_id).compact
+    if !SiteSetting.login_required? || current_user
+      key = "page_not_found_topics"
+      if @topics_partial = $redis.get(key)
+        @topics_partial = @topics_partial.html_safe
+      else
+        category_topic_ids = Category.pluck(:topic_id).compact
+        @top_viewed = TopicQuery.new(nil, except_topic_ids: category_topic_ids).list_top_for("monthly").topics.first(10)
+        @recent = Topic.includes(:category).where.not(id: category_topic_ids).recent(10)
+        @topics_partial = render_to_string partial: '/exceptions/not_found_topics', formats: [:html]
+        $redis.setex(key, 10.minutes, @topics_partial)
+      end
+    end
+
     @container_class = "wrap not-found-container"
-    @top_viewed = TopicQuery.new(nil, except_topic_ids: category_topic_ids).list_top_for("monthly").topics.first(10)
-    @recent = Topic.includes(:category).where.not(id: category_topic_ids).recent(10)
-    @slug =  params[:slug].class == String ? params[:slug] : ''
-    @slug =  (params[:id].class == String ? params[:id] : '') if @slug.blank?
-    @slug.tr!('-', ' ')
+    @slug = (params[:slug].presence || params[:id].presence || "").tr('-', '')
     @hide_search = true if SiteSetting.login_required
     render_to_string status: status, layout: layout, formats: [:html], template: '/exceptions/not_found'
   end
@@ -729,7 +799,7 @@ class ApplicationController < ActionController::Base
 
   protected
 
-  def render_post_json(post, add_raw = true)
+  def render_post_json(post, add_raw: true)
     post_serializer = PostSerializer.new(post, scope: guardian, root: false)
     post_serializer.add_raw = add_raw
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # name: discourse-presence
 # about: Show which users are writing a reply to a topic
 # version: 1.0
@@ -107,8 +109,7 @@ after_initialize do
     ACTIONS ||= [-"edit", -"reply"].freeze
 
     def publish
-
-      raise Discourse::NotFound if !current_user
+      raise Discourse::NotFound if current_user.blank? || current_user.user_option.hide_profile_and_presence?
 
       data = params.permit(
         :response_needed,

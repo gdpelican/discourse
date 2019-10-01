@@ -1,25 +1,41 @@
+# frozen_string_literal: true
+
 class UploadRecovery
   def initialize(dry_run: false)
     @dry_run = dry_run
   end
 
   def recover(posts = Post)
-    posts.where("raw LIKE '%upload:\/\/%'").find_each do |post|
+    posts.have_uploads.find_each do |post|
+
       begin
         analyzer = PostAnalyzer.new(post.raw, post.topic_id)
 
-        analyzer.cooked_stripped.css("img").each do |img|
-          if dom_class = img["class"]
-            if (Post.white_listed_image_classes & dom_class.split).count > 0
-              next
+        analyzer.cooked_stripped.css("img", "a").each do |media|
+          if media.name == "img" && orig_src = media["data-orig-src"]
+            if dom_class = media["class"]
+              if (Post.white_listed_image_classes & dom_class.split).count > 0
+                next
+              end
             end
-          end
 
-          if img["data-orig-src"]
             if @dry_run
-              puts "#{post.full_url} #{img["data-orig-src"]}"
+              puts "#{post.full_url} #{orig_src}"
             else
-              recover_post_upload(post, img["data-orig-src"])
+              recover_post_upload(post, Upload.sha1_from_short_url(orig_src))
+            end
+          elsif url = (media["href"] || media["src"])
+            data = Upload.extract_url(url)
+            next unless data
+
+            sha1 = data[2]
+
+            unless upload = Upload.get_from_url(url)
+              if @dry_run
+                puts "#{post.full_url} #{url}"
+              else
+                recover_post_upload(post, sha1)
+              end
             end
           end
         end
@@ -32,9 +48,8 @@ class UploadRecovery
 
   private
 
-  def recover_post_upload(post, short_url)
-    sha1 = Upload.sha1_from_short_url(short_url)
-    return unless sha1.present?
+  def recover_post_upload(post, sha1)
+    return unless valid_sha1?(sha1)
 
     attributes = {
       post: post,
@@ -42,13 +57,42 @@ class UploadRecovery
     }
 
     if Discourse.store.external?
-      recover_from_s3(attributes)
+      recover_post_upload_from_s3(attributes)
     else
-      recover_from_local(attributes)
+      recover_post_upload_from_local(attributes)
     end
   end
 
-  def recover_from_local(post:, sha1:)
+  def ensure_upload!(post:, sha1:, upload:)
+    return if !upload.persisted?
+
+    if upload.sha1 != sha1
+      STDERR.puts "Warning #{post.url} had an incorrect #{sha1} should be #{upload.sha1} storing in custom field 'rake uploads:fix_relative_upload_links' can fix this"
+
+      sha_map = post.custom_fields["UPLOAD_SHA1_MAP"] || "{}"
+      sha_map = JSON.parse(sha_map)
+      sha_map[sha1] = upload.sha1
+
+      post.custom_fields["UPLOAD_SHA1_MAP"] = sha_map.to_json
+      post.save_custom_fields
+    end
+
+    post.rebake!
+  end
+
+  def recover_post_upload_from_local(post:, sha1:)
+    recover_from_local(sha1: sha1, user_id: post.user_id) do |upload|
+      ensure_upload!(post: post, sha1: sha1, upload: upload)
+    end
+  end
+
+  def recover_post_upload_from_s3(post:, sha1:)
+    recover_from_s3(sha1: sha1, user_id: post.user_id) do |upload|
+      ensure_upload!(post: post, sha1: sha1, upload: upload)
+    end
+  end
+
+  def recover_from_local(sha1:, user_id:)
     public_path = Rails.root.join("public")
 
     @paths ||= begin
@@ -73,16 +117,20 @@ class UploadRecovery
     @paths.each do |path|
       if path =~ /#{sha1}/
         begin
-          file = File.open(path, "r")
-          create_upload(file, File.basename(path), post)
+          tmp = Tempfile.new
+          tmp.write(File.read(path))
+          tmp.rewind
+
+          upload = create_upload(tmp, File.basename(path), user_id)
+          yield upload if block_given?
         ensure
-          file&.close
+          tmp&.close
         end
       end
     end
   end
 
-  def recover_from_s3(post:, sha1:)
+  def recover_from_s3(sha1:, user_id:)
     @object_keys ||= begin
       s3_helper = Discourse.store.s3_helper
 
@@ -115,7 +163,10 @@ class UploadRecovery
             tmp_file_name: "recover_from_s3"
           )
 
-          create_upload(tmp, File.basename(key), post) if tmp
+          if tmp
+            upload = create_upload(tmp, File.basename(key), user_id)
+            yield upload if block_given?
+          end
         ensure
           tmp&.close
         end
@@ -123,8 +174,11 @@ class UploadRecovery
     end
   end
 
-  def create_upload(file, filename, post)
-    upload = UploadCreator.new(file, filename).create_for(post.user_id)
-    post.rebake! if upload.persisted?
+  def create_upload(file, filename, user_id)
+    UploadCreator.new(file, filename).create_for(user_id)
+  end
+
+  def valid_sha1?(sha1)
+    sha1.present? && sha1.length == Upload::SHA1_LENGTH
   end
 end

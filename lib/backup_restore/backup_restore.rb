@@ -1,5 +1,7 @@
-require "backup_restore/backuper"
-require "backup_restore/restorer"
+# frozen_string_literal: true
+
+require_dependency "backup_restore/backuper"
+require_dependency "backup_restore/restorer"
 
 module BackupRestore
 

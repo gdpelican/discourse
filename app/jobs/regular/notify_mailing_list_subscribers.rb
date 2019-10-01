@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_dependency 'post'
 
 module Jobs
@@ -5,7 +7,20 @@ module Jobs
   class NotifyMailingListSubscribers < Jobs::Base
     include Skippable
 
+    RETRY_TIMES = [5.minute, 15.minute, 30.minute, 45.minute, 90.minute, 180.minute, 300.minute]
+
     sidekiq_options queue: 'low'
+
+    sidekiq_options retry: RETRY_TIMES.size
+
+    sidekiq_retry_in do |count, exception|
+      case exception.wrapped
+      when SocketError
+        RETRY_TIMES[count]
+      else
+        Jobs::UserEmail.seconds_to_delay(count)
+      end
+    end
 
     def execute(args)
       return if SiteSetting.disable_mailing_list_mode
@@ -23,6 +38,11 @@ module Jobs
                       SELECT 1
                       FROM muted_users mu
                       WHERE mu.muted_user_id = ? AND mu.user_id = users.id
+                  )', post.user_id)
+            .where('NOT EXISTS (
+                      SELECT 1
+                      FROM ignored_users iu
+                      WHERE iu.ignored_user_id = ? AND iu.user_id = users.id
                   )', post.user_id)
             .where('NOT EXISTS (
                       SELECT 1

@@ -126,6 +126,11 @@ vendor/bundle/*
 /node_modules
 /package-lock.json
 
+/vendor/data/GeoLite2-City.mmdb
+
+# Vagrant
+.vagrant
+
 
 !/plugins/edgeryders-communities-navigation
 !/plugins/edgeryders-multisite

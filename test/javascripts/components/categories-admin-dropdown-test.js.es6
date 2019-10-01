@@ -1,3 +1,4 @@
+import selectKit from "helpers/select-kit-helper";
 import componentTest from "helpers/component-test";
 moduleForComponent("categories-admin-dropdown", { integration: true });
 
@@ -8,7 +9,6 @@ componentTest("default", {
     const subject = selectKit();
 
     assert.equal(subject.el().find(".d-icon-bars").length, 1);
-    assert.equal(subject.el().find(".d-icon-caret-down").length, 1);
 
     await subject.expand();
 
