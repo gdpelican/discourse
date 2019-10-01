@@ -80,13 +80,10 @@ class ApplicationController < ActionController::Base
       (request.content_type.blank? || request.content_type.include?('html')) &&
       !['json', 'rss'].include?(params[:format]) &&
       # damingo (Github ID), 2019-09-23, #annotator
-      (has_escaped_fragment? || CrawlerDetection.crawler?(request.user_agent) || params.key?("print") || params.key?("oe"))
-
-
-    # (has_escaped_fragment? || params.key?("print") ||
-    #   CrawlerDetection.crawler?(request.user_agent, request.headers["HTTP_VIA"])
-    # )
-
+      (has_escaped_fragment? || params.key?("print") ||
+        CrawlerDetection.crawler?(request.user_agent, request.headers["HTTP_VIA"]) ||
+        params.key?("oe")
+      )
   end
 
   def perform_refresh_session
